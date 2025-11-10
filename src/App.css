@@ -28,6 +28,29 @@
   cursor: pointer;
 }
 
+.success-banner {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  background-color: #10b981;
+  color: white;
+  padding: 1rem 1.5rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.success-banner button {
+  text-decoration: underline;
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+}
+
 .welcome-screen,
 .form-screen,
 .review-screen {
@@ -183,8 +206,9 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
+  padding: 1.5rem;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  gap: 1.5rem;
 }
 
 .capture-screen h2 {
@@ -210,6 +234,7 @@
   overflow: hidden;
   border-radius: 1rem;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  background-color: #111827;
 }
 
 .photo-preview {
@@ -456,6 +481,125 @@
   margin: 0;
 }
 
+.capture-header {
+  width: 100%;
+  max-width: 45rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  color: white;
+  text-align: center;
+}
+
+.progress-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.progress-dots {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.progress-dot {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 9999px;
+  background-color: rgba(255, 255, 255, 0.35);
+  transition: background-color 0.2s ease;
+}
+
+.progress-dot.active {
+  background-color: #facc15;
+}
+
+.progress-dot.completed {
+  background-color: #22c55e;
+}
+
+.captured-selfies {
+  width: 100%;
+  max-width: 45rem;
+  background-color: rgba(17, 24, 39, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  color: white;
+}
+
+.captured-selfies h3 {
+  margin-bottom: 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.selfies-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 0.75rem;
+}
+
+.selfie-preview-item {
+  position: relative;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.selfie-preview-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.selfie-index {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  background-color: rgba(15, 118, 110, 0.9);
+  color: white;
+  border-radius: 9999px;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.liveness-tip {
+  width: 100%;
+  max-width: 45rem;
+  background-color: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  color: rgba(255, 255, 255, 0.92);
+  text-align: left;
+  line-height: 1.4;
+}
+
+.liveness-tip h4 {
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #facc15;
+}
+
+.tip-note {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.selfies-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
 /* Mobile Responsive Styles */
 @media (max-width: 768px) {
   /* Adjust padding for smaller screens */
@@ -463,6 +607,12 @@
   .form-screen,
   .review-screen {
     padding: 1rem;
+  }
+
+  .capture-screen {
+    padding: 1rem;
+    justify-content: flex-start;
+    gap: 1rem;
   }
 
   .card {
@@ -506,11 +656,11 @@
 
   /* Button container responsive */
   .button-container {
-    bottom: 1rem;
-    left: 1rem;
-    right: 1rem;
+    position: static;
     transform: none;
-    width: auto;
+    width: 100%;
+    padding: 0;
+    margin-top: 0.5rem;
   }
 
   .button-container button {
@@ -537,15 +687,17 @@
     padding: 0.875rem 1rem;
   }
 
-  /* Preview badge size */
-  .preview-badge {
-    font-size: 1rem;
-    padding: 0.625rem 1.25rem;
+  .success-banner {
+    left: 1rem;
+    right: 1rem;
+    top: 4.5rem;
+    font-size: 0.875rem;
+    padding: 0.875rem 1rem;
   }
 
-  /* Step items */
-  .step-item {
-    padding: 0.875rem;
+  .captured-selfies,
+  .liveness-tip {
+    padding: 1rem;
   }
 
   .step-item h3 {
@@ -599,6 +751,23 @@
     top: 0.75rem;
     font-size: 0.8125rem;
     padding: 0.75rem 0.875rem;
+  }
+
+  .success-banner {
+    top: 3.75rem;
+    left: 0.75rem;
+    right: 0.75rem;
+    font-size: 0.8125rem;
+    padding: 0.75rem 0.875rem;
+  }
+
+  .captured-selfies,
+  .liveness-tip {
+    padding: 0.875rem;
+  }
+
+  .selfies-preview-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -657,6 +826,12 @@
 
   .error-banner {
     top: max(1rem, env(safe-area-inset-top));
+    left: max(1rem, env(safe-area-inset-left));
+    right: max(1rem, env(safe-area-inset-right));
+  }
+
+  .success-banner {
+    top: max(4.5rem, env(safe-area-inset-top) + 3rem);
     left: max(1rem, env(safe-area-inset-left));
     right: max(1rem, env(safe-area-inset-right));
   }

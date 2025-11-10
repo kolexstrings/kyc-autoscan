@@ -1,12 +1,13 @@
 import { useState } from "react";
 import type { DocumentCallback } from "@innovatrics/dot-document-auto-capture";
 import type { FaceCallback } from "@innovatrics/dot-face-auto-capture";
-import type { CapturedImageData, KycFormData, KycSubmissionPayload, CapturedData } from "./types";
+import type { CapturedImageData, KycFormData, CapturedData } from "./types";
 import { Step } from "./types";
 import DocumentAutoCapture from "./components/DocumentAutoCapture";
 import FaceAutoCapture from "./components/FaceAutoCapture";
 import { blobToBase64, blobToDataUri, downloadImage, generateFilename } from "./utils/imageUtils";
 import "./App.css";
+import { submitKyc } from "./services/kycApi";
 
 function App() {
   const [currentStep, setCurrentStep] = useState<Step>(Step.WELCOME);
@@ -24,6 +25,8 @@ function App() {
     return `user_${Math.random().toString(36).slice(2, 10)}`;
   });
   const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionMessage, setSubmissionMessage] = useState<string | null>(null);
 
   const isFormValid =
     formData.name.trim() !== '' &&
@@ -138,7 +141,7 @@ function App() {
     }));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!capturedData.document || capturedData.selfies.length < 4) {
       setError('Please capture both your ID document and at least 4 selfies before submitting.');
       return;
@@ -149,27 +152,35 @@ function App() {
       return;
     }
 
-    const payload: KycSubmissionPayload = {
-      identificationDocumentImage: [capturedData.document.dataUri],
-      image: capturedData.selfies[0].dataUri, // Primary selfie
-      selfieImages: capturedData.selfies.map((selfie) => selfie.dataUri), // All selfies for liveness
-      name: formData.name,
-      surname: formData.surname,
-      dateOfBirth: formData.dateOfBirth,
-      userId,
-      documentType: formData.documentType,
-      challengeType: 'passive',
-    };
+    setError(null);
+    setSubmissionMessage(null);
+    setIsSubmitting(true);
 
-    console.log("✅ VERIFICATION COMPLETE - KYC Payload:", payload);
+    try {
+      const response = await submitKyc({
+        documentFront: capturedData.document.blob,
+        selfies: capturedData.selfies.map((selfie) => ({
+          blob: selfie.blob,
+          filename: selfie.filename,
+        })),
+        personalDetails: {
+          name: formData.name,
+          surname: formData.surname,
+          dateOfBirth: formData.dateOfBirth,
+          documentType: formData.documentType,
+          userId,
+          challengeType: 'passive',
+        },
+      });
 
-    console.log("\n📦 How to use this data:");
-    console.log("1. JPEG Files: Already downloaded to your device storage");
-    console.log("2. For Backend API: Send the payload object above");
-    console.log("3. All selfies included for liveness detection");
-
-    alert("✅ Verification complete!\n\n📸 Images saved to device storage\n📋 Check console for KYC payload");
-    handleRestart();
+      setSubmissionMessage(response?.message || 'Verification submitted successfully.');
+      handleRestart();
+    } catch (err: any) {
+      const fallbackMessage = err instanceof Error ? err.message : 'Failed to submit verification. Please try again.';
+      setError(fallbackMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleRestart = () => {
@@ -190,6 +201,13 @@ function App() {
         <div className="error-banner">
           {error}
           <button onClick={() => setError(null)}>Dismiss</button>
+        </div>
+      )}
+
+      {submissionMessage && (
+        <div className="success-banner">
+          {submissionMessage}
+          <button onClick={() => setSubmissionMessage(null)}>Dismiss</button>
         </div>
       )}
 
@@ -400,8 +418,12 @@ function App() {
               >
                 Retake Selfies
               </button>
-              <button className="btn btn-primary" onClick={handleSubmit}>
-                Submit Verification
+              <button
+                className="btn btn-primary"
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Submitting…' : 'Submit Verification'}
               </button>
             </div>
           </div>
