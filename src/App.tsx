@@ -1,29 +1,35 @@
 import { useState } from "react";
 import type { DocumentCallback } from "@innovatrics/dot-document-auto-capture";
 import type { FaceCallback } from "@innovatrics/dot-face-auto-capture";
+import type { CapturedImageData, KycFormData, KycSubmissionPayload, CapturedData } from "./types";
 import { Step } from "./types";
 import DocumentAutoCapture from "./components/DocumentAutoCapture";
 import FaceAutoCapture from "./components/FaceAutoCapture";
 import { blobToBase64, blobToDataUri, downloadImage, generateFilename } from "./utils/imageUtils";
 import "./App.css";
 
-interface CapturedImageData {
-  blob: Blob;              // Original blob from SDK
-  dataUrl: string;         // Object URL for preview (blob:http://...)
-  base64: string;          // Pure base64 for Innovatrics API
-  dataUri: string;         // Full data URI (data:image/jpeg;base64,...)
-  filename: string;        // Downloaded filename
-}
-
-interface CapturedData {
-  document?: CapturedImageData;
-  face?: CapturedImageData;
-}
-
 function App() {
   const [currentStep, setCurrentStep] = useState<Step>(Step.WELCOME);
-  const [capturedData, setCapturedData] = useState<CapturedData>({});
+  const [capturedData, setCapturedData] = useState<CapturedData>({ selfies: [] });
+  const [formData, setFormData] = useState<KycFormData>({
+    name: '',
+    surname: '',
+    dateOfBirth: '',
+    documentType: 'passport',
+  });
+  const [userId] = useState<string>(() => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return `user_${crypto.randomUUID()}`;
+    }
+    return `user_${Math.random().toString(36).slice(2, 10)}`;
+  });
   const [error, setError] = useState<string | null>(null);
+
+  const isFormValid =
+    formData.name.trim() !== '' &&
+    formData.surname.trim() !== '' &&
+    formData.dateOfBirth.trim() !== '' &&
+    formData.documentType.trim() !== '';
 
   const handleDocumentCapture: DocumentCallback = async (imageData, _content) => {
     try {
@@ -58,10 +64,10 @@ function App() {
       
       setCapturedData((prev) => {
         const updated = { ...prev, document: capturedImage };
-        if (prev.face) {
+        if (prev.selfies.length >= 4) {
           setCurrentStep(Step.REVIEW);
         } else {
-          setCurrentStep(Step.SELECT_CAPTURE);
+          setCurrentStep(Step.FACE_CAPTURE);
         }
         return updated;
       });
@@ -74,16 +80,16 @@ function App() {
   const handleFaceCapture: FaceCallback = async (imageData, _content) => {
     try {
       const blob = imageData.image;
-      
+
       // Generate filename and download to device
       const filename = generateFilename('selfie');
       downloadImage(blob, filename);
-      
+
       // Convert to all required formats
       const base64 = await blobToBase64(blob);
       const dataUri = await blobToDataUri(blob);
       const dataUrl = URL.createObjectURL(blob);
-      
+
       // Store all formats
       const capturedImage: CapturedImageData = {
         blob,
@@ -92,7 +98,7 @@ function App() {
         dataUri,
         filename,
       };
-      
+
       console.log('🤳 Selfie captured:', {
         filename,
         blobSize: `${(blob.size / 1024).toFixed(2)} KB`,
@@ -101,14 +107,16 @@ function App() {
         // For Innovatrics API, send: { image: { data: base64 } }
         innovatricsFormat: { image: { data: base64 } }
       });
-      
+
       setCapturedData((prev) => {
-        const updated = { ...prev, face: capturedImage };
-        if (prev.document) {
+        const newSelfies = [...prev.selfies, capturedImage].slice(-4); // Keep up to 4 selfies
+        const updated = { ...prev, selfies: newSelfies };
+
+        // If we have 4 selfies and a document, go to review
+        if (newSelfies.length >= 4 && prev.document) {
           setCurrentStep(Step.REVIEW);
-        } else {
-          setCurrentStep(Step.SELECT_CAPTURE);
         }
+        // Note: Don't change step here, let FaceAutoCapture handle the flow
         return updated;
       });
     } catch (err) {
@@ -122,42 +130,56 @@ function App() {
     console.error("Capture error:", err);
   };
 
+  const handleFormChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = event.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
   const handleSubmit = () => {
-    console.log("✅ VERIFICATION COMPLETE - All captured data:", {
-      document: capturedData.document ? {
-        filename: capturedData.document.filename,
-        blob: capturedData.document.blob,
-        blobSize: `${(capturedData.document.blob.size / 1024).toFixed(2)} KB`,
-        base64: capturedData.document.base64,
-        base64Length: capturedData.document.base64.length,
-        dataUri: capturedData.document.dataUri.substring(0, 50) + '...',
-        // Ready for Innovatrics API:
-        innovatricsPayload: { image: { data: capturedData.document.base64 } }
-      } : null,
-      face: capturedData.face ? {
-        filename: capturedData.face.filename,
-        blob: capturedData.face.blob,
-        blobSize: `${(capturedData.face.blob.size / 1024).toFixed(2)} KB`,
-        base64: capturedData.face.base64,
-        base64Length: capturedData.face.base64.length,
-        dataUri: capturedData.face.dataUri.substring(0, 50) + '...',
-        // Ready for Innovatrics API:
-        innovatricsPayload: { image: { data: capturedData.face.base64 } }
-      } : null
-    });
-    
+    if (!capturedData.document || capturedData.selfies.length < 4) {
+      setError('Please capture both your ID document and at least 4 selfies before submitting.');
+      return;
+    }
+
+    if (!formData.name || !formData.surname || !formData.dateOfBirth || !formData.documentType) {
+      setError('Please complete all required form fields.');
+      return;
+    }
+
+    const payload: KycSubmissionPayload = {
+      identificationDocumentImage: [capturedData.document.dataUri],
+      image: capturedData.selfies[0].dataUri, // Primary selfie
+      selfieImages: capturedData.selfies.map((selfie) => selfie.dataUri), // All selfies for liveness
+      name: formData.name,
+      surname: formData.surname,
+      dateOfBirth: formData.dateOfBirth,
+      userId,
+      documentType: formData.documentType,
+      challengeType: 'passive',
+    };
+
+    console.log("✅ VERIFICATION COMPLETE - KYC Payload:", payload);
+
     console.log("\n📦 How to use this data:");
     console.log("1. JPEG Files: Already downloaded to your device storage");
-    console.log("2. For Innovatrics API: Use capturedData.document.base64 or capturedData.face.base64");
-    console.log("3. For display: Use capturedData.document.dataUri or capturedData.face.dataUri");
-    console.log("4. Raw blob: Use capturedData.document.blob or capturedData.face.blob");
-    
-    alert("✅ Verification complete!\n\n📸 Images saved to device storage\n📋 Check console for all data formats");
+    console.log("2. For Backend API: Send the payload object above");
+    console.log("3. All selfies included for liveness detection");
+
+    alert("✅ Verification complete!\n\n📸 Images saved to device storage\n📋 Check console for KYC payload");
     handleRestart();
   };
 
   const handleRestart = () => {
-    setCapturedData({});
+    setCapturedData({ selfies: [] });
+    setFormData({
+      name: '',
+      surname: '',
+      dateOfBirth: '',
+      documentType: 'passport',
+    });
     setError(null);
     setCurrentStep(Step.WELCOME);
   };
@@ -175,22 +197,30 @@ function App() {
         <div className="welcome-screen">
           <div className="card">
             <h1>KYC Verification</h1>
-            <p>Complete your identity verification in 2 simple steps</p>
+            <p>Complete your identity verification in a guided 4-step process</p>
 
             <div className="steps-list">
               <div className="step-item">
-                <h3>1. Capture ID Document</h3>
+                <h3>1. Provide Personal Details</h3>
+                <p>Fill in your information exactly as it appears on your ID document</p>
+              </div>
+              <div className="step-item">
+                <h3>2. Capture ID Document</h3>
                 <p>Take a clear photo of your government-issued ID</p>
               </div>
               <div className="step-item">
-                <h3>2. Capture Selfie</h3>
-                <p>Take a selfie for face verification</p>
+                <h3>3. Capture Selfies</h3>
+                <p>Take multiple selfies with slight variations for face verification and liveness detection</p>
+              </div>
+              <div className="step-item">
+                <h3>4. Review & Submit</h3>
+                <p>Confirm your details and submit everything for verification</p>
               </div>
             </div>
 
             <button
               className="btn btn-primary"
-              onClick={() => setCurrentStep(Step.SELECT_CAPTURE)}
+              onClick={() => setCurrentStep(Step.FORM)}
             >
               Get Started
             </button>
@@ -198,50 +228,61 @@ function App() {
         </div>
       )}
 
-      {currentStep === Step.SELECT_CAPTURE && (
-        <div className="select-screen">
+      {currentStep === Step.FORM && (
+        <div className="form-screen">
           <div className="card">
-            <h2>Choose What to Capture</h2>
-            <p>Select which verification step you'd like to complete</p>
+            <h2>Provide Your Details</h2>
+            <p>Tell us who you are before we capture your document.</p>
 
-            <div className="capture-options">
-              <button
-                className={`capture-option ${capturedData.document ? "captured" : ""}`}
-                onClick={() => {
-                  if (capturedData.document) {
-                    setCapturedData((prev) => ({ ...prev, document: undefined }));
-                  }
-                  setCurrentStep(Step.DOCUMENT_CAPTURE);
-                }}
-              >
-                <div>
-                  <h3>ID Document</h3>
-                  <p>
-                    {capturedData.document
-                      ? "Captured ✓ - Click to retake"
-                      : "Capture your government-issued ID"}
-                  </p>
-                </div>
-              </button>
-
-              <button
-                className={`capture-option ${capturedData.face ? "captured" : ""}`}
-                onClick={() => {
-                  if (capturedData.face) {
-                    setCapturedData((prev) => ({ ...prev, face: undefined }));
-                  }
-                  setCurrentStep(Step.FACE_CAPTURE);
-                }}
-              >
-                <div>
-                  <h3>Selfie</h3>
-                  <p>
-                    {capturedData.face
-                      ? "Captured ✓ - Click to retake"
-                      : "Take a selfie for face verification"}
-                  </p>
-                </div>
-              </button>
+            <div className="form-section">
+              <div className="form-grid">
+                <label className="form-field">
+                  First Name
+                  <input
+                    type="text"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleFormChange}
+                    placeholder="Enter first name"
+                    required
+                  />
+                </label>
+                <label className="form-field">
+                  Surname
+                  <input
+                    type="text"
+                    name="surname"
+                    value={formData.surname}
+                    onChange={handleFormChange}
+                    placeholder="Enter surname"
+                    required
+                  />
+                </label>
+                <label className="form-field">
+                  Date of Birth
+                  <input
+                    type="date"
+                    name="dateOfBirth"
+                    value={formData.dateOfBirth}
+                    onChange={handleFormChange}
+                    required
+                  />
+                </label>
+                <label className="form-field">
+                  Document Type
+                  <select
+                    name="documentType"
+                    value={formData.documentType}
+                    onChange={handleFormChange}
+                    required
+                  >
+                    <option value="passport">Passport</option>
+                    <option value="driver_license">Driver's License</option>
+                    <option value="id_card">ID Card</option>
+                    <option value="residence_permit">Residence Permit</option>
+                  </select>
+                </label>
+              </div>
             </div>
 
             <div className="button-group">
@@ -251,14 +292,13 @@ function App() {
               >
                 Back
               </button>
-              {capturedData.document && capturedData.face && (
-                <button
-                  className="btn btn-primary"
-                  onClick={() => setCurrentStep(Step.REVIEW)}
-                >
-                  Review & Submit
-                </button>
-              )}
+              <button
+                className="btn btn-primary"
+                disabled={!isFormValid}
+                onClick={() => setCurrentStep(Step.DOCUMENT_CAPTURE)}
+              >
+                Continue to Document Capture
+              </button>
             </div>
           </div>
         </div>
@@ -268,7 +308,7 @@ function App() {
         <DocumentAutoCapture
           onPhotoTaken={handleDocumentCapture}
           onError={handleError}
-          onBack={() => setCurrentStep(Step.SELECT_CAPTURE)}
+          onBack={() => setCurrentStep(Step.FORM)}
         />
       )}
 
@@ -276,7 +316,8 @@ function App() {
         <FaceAutoCapture
           onPhotoTaken={handleFaceCapture}
           onError={handleError}
-          onBack={() => setCurrentStep(Step.SELECT_CAPTURE)}
+          onBack={() => setCurrentStep(Step.DOCUMENT_CAPTURE)}
+          capturedSelfies={capturedData.selfies.map(s => s.dataUrl)}
         />
       )}
 
@@ -297,22 +338,70 @@ function App() {
               </div>
 
               <div className="review-item">
-                <h3>Selfie</h3>
-                {capturedData.face && (
-                  <img src={capturedData.face.dataUrl} alt="Captured face" />
+                <h3>Selfie Captures</h3>
+                {capturedData.selfies.length > 0 ? (
+                  <div className="selfies-grid">
+                    {capturedData.selfies.map((selfie, index) => (
+                      <div key={index} className="selfie-thumbnail">
+                        <img src={selfie.dataUrl} alt={`Selfie ${index + 1}`} />
+                        <span className="selfie-number">#{index + 1}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p>No selfies captured</p>
                 )}
+              </div>
+            </div>
+
+            <div className="form-section">
+              <div className="form-section-header">
+                <h3>Verification Details</h3>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setCurrentStep(Step.FORM)}
+                >
+                  Edit Details
+                </button>
+              </div>
+              <div className="form-info">
+                <div className="info-item">
+                  <strong>First Name:</strong> {formData.name}
+                </div>
+                <div className="info-item">
+                  <strong>Surname:</strong> {formData.surname}
+                </div>
+                <div className="info-item">
+                  <strong>Date of Birth:</strong> {formData.dateOfBirth}
+                </div>
+                <div className="info-item">
+                  <strong>Document Type:</strong> {formData.documentType}
+                </div>
+                <div className="info-item">
+                  <strong>User ID:</strong> {userId}
+                </div>
+                <div className="info-item">
+                  <strong>Challenge Type:</strong> passive
+                </div>
               </div>
             </div>
 
             <div className="button-group">
               <button
                 className="btn btn-secondary"
-                onClick={() => setCurrentStep(Step.SELECT_CAPTURE)}
+                onClick={() => setCurrentStep(Step.DOCUMENT_CAPTURE)}
               >
-                Retake
+                Retake Document
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setCurrentStep(Step.FACE_CAPTURE)}
+              >
+                Retake Selfies
               </button>
               <button className="btn btn-primary" onClick={handleSubmit}>
-                Submit
+                Submit Verification
               </button>
             </div>
           </div>
