@@ -144,6 +144,13 @@ export default function FaceAutoCapture({
         </div>
       </div>
 
+      <div className="variation-reminder" role="status" aria-live="polite">
+        <strong>Slight changes help passive liveness.</strong>
+        <span>
+          After each capture, tilt your head, adjust expression, or move a little so every selfie looks slightly different.
+        </span>
+      </div>
+
       {/* Captured Selfies Preview */}
       {capturedSelfies.length > 0 && (
         <div className="captured-selfies">
