@@ -4,6 +4,8 @@ export const Step = {
   DOCUMENT_CAPTURE: "DOCUMENT_CAPTURE",
   FACE_CAPTURE: "FACE_CAPTURE",
   REVIEW: "REVIEW",
+  SUBMITTING: "SUBMITTING",
+  RESULT: "RESULT",
 } as const;
 
 export type Step = typeof Step[keyof typeof Step];

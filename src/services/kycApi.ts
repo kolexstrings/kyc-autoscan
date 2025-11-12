@@ -1,9 +1,15 @@
-const DEFAULT_BASE_URL = 'https://id-verification-system-cf58.onrender.com';
+const resolveApiBaseUrl = (): string => {
+  const envBaseUrl =
+    typeof import.meta !== 'undefined' ? import.meta.env?.VITE_ID_VERIFICATION_BASE_URL : undefined;
 
-const API_BASE_URL =
-  typeof import.meta !== 'undefined' && import.meta.env?.VITE_ID_VERIFICATION_BASE_URL
-    ? import.meta.env.VITE_ID_VERIFICATION_BASE_URL
-    : DEFAULT_BASE_URL;
+  if (!envBaseUrl) {
+    throw new Error(
+      'VITE_ID_VERIFICATION_BASE_URL is not defined. Please configure the environment variable to point to the ID verification backend.'
+    );
+  }
+
+  return envBaseUrl.replace(/\/$/, '');
+};
 
 export interface SubmitKycOptions {
   documentFront: File | Blob | null;
@@ -24,6 +30,23 @@ export interface SubmitKycResponse {
   success: boolean;
   message?: string;
   data?: any;
+}
+
+export class SubmitKycError extends Error {
+  status?: number;
+  details?: unknown;
+  body?: unknown;
+
+  constructor(
+    message: string,
+    options: { status?: number; details?: unknown; body?: unknown } = {}
+  ) {
+    super(message);
+    this.name = 'SubmitKycError';
+    this.status = options.status;
+    this.details = options.details;
+    this.body = options.body;
+  }
 }
 
 export async function submitKyc(options: SubmitKycOptions): Promise<SubmitKycResponse> {
@@ -77,7 +100,7 @@ export async function submitKyc(options: SubmitKycOptions): Promise<SubmitKycRes
     appendFile('selfieImages', selfie.blob, selfie.filename ?? `selfie_${index + 1}.jpg`);
   });
 
-  const endpoint = `${API_BASE_URL.replace(/\/$/, '')}/api/kyc/verify`;
+  const endpoint = `${resolveApiBaseUrl()}/api/kyc/verify`;
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -86,13 +109,18 @@ export async function submitKyc(options: SubmitKycOptions): Promise<SubmitKycRes
 
   if (!response.ok) {
     let errorMessage = `KYC submission failed with status ${response.status}`;
+    let errorBody: any = null;
     try {
-      const errorBody = await response.json();
+      errorBody = await response.json();
       errorMessage = errorBody?.message || errorMessage;
     } catch (error) {
       // ignore JSON parse errors and keep generic message
     }
-    throw new Error(errorMessage);
+    throw new SubmitKycError(errorMessage, {
+      status: response.status,
+      details: errorBody?.details,
+      body: errorBody,
+    });
   }
 
   return (await response.json()) as SubmitKycResponse;

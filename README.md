@@ -39,7 +39,17 @@ This copies:
 - UI assets from `@innovatrics/dot-auto-capture-ui/dot-assets` to `public/dot-assets/`
 - WASM files (`sam.wasm`) from document and face packages to `public/`
 
-### 3. Start Development Server
+### 3. Configure Environment
+
+Create a `.env.local` (or `.env`) file based on the provided `.env.example` and set the backend base URL:
+
+```
+VITE_ID_VERIFICATION_BASE_URL=http://localhost:3000
+```
+
+Adjust the value to the environment where the ID verification backend is running.
+
+### 4. Start Development Server
 
 ```bash
 yarn dev
@@ -47,7 +57,7 @@ yarn dev
 
 Open [http://localhost:5173](http://localhost:5173) in your browser.
 
-### 4. Build for Production
+### 5. Build for Production
 
 ```bash
 yarn build

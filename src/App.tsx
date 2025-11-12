@@ -5,9 +5,18 @@ import type { CapturedImageData, KycFormData, CapturedData } from "./types";
 import { Step } from "./types";
 import DocumentAutoCapture from "./components/DocumentAutoCapture";
 import FaceAutoCapture from "./components/FaceAutoCapture";
-import { blobToBase64, blobToDataUri, downloadImage, generateFilename } from "./utils/imageUtils";
+import { blobToBase64, blobToDataUri, generateFilename } from "./utils/imageUtils";
 import "./App.css";
-import { submitKyc } from "./services/kycApi";
+import { submitKyc, SubmitKycError } from "./services/kycApi";
+
+type SubmissionResult = {
+  status: "success" | "error";
+  message: string;
+  faceScore?: number;
+  faceThreshold?: number;
+  livenessStatus?: string;
+  livenessConfidence?: number;
+};
 
 function App() {
   const [currentStep, setCurrentStep] = useState<Step>(Step.WELCOME);
@@ -27,6 +36,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionMessage, setSubmissionMessage] = useState<string | null>(null);
+  const [submissionResult, setSubmissionResult] = useState<SubmissionResult | null>(null);
+
+  const FACE_MATCH_THRESHOLD = 0.64;
 
   const isFormValid =
     formData.name.trim() !== '' &&
@@ -38,9 +50,7 @@ function App() {
     try {
       const blob = imageData.image;
       
-      // Generate filename and download to device
       const filename = generateFilename('document');
-      downloadImage(blob, filename);
       
       // Convert to all required formats
       const base64 = await blobToBase64(blob);
@@ -84,9 +94,7 @@ function App() {
     try {
       const blob = imageData.image;
 
-      // Generate filename and download to device
       const filename = generateFilename('selfie');
-      downloadImage(blob, filename);
 
       // Convert to all required formats
       const base64 = await blobToBase64(blob);
@@ -155,6 +163,8 @@ function App() {
     setError(null);
     setSubmissionMessage(null);
     setIsSubmitting(true);
+    setSubmissionResult(null);
+    setCurrentStep(Step.SUBMITTING);
 
     try {
       const response = await submitKyc({
@@ -174,10 +184,57 @@ function App() {
       });
 
       setSubmissionMessage(response?.message || 'Verification submitted successfully.');
-      handleRestart();
+      const results = response?.data?.results ?? {};
+      const liveness = results?.livenessCheck ?? results?.liveness;
+      const faceScore = results?.faceComparison?.score;
+
+      setSubmissionResult({
+        status: 'success',
+        message:
+          response?.message ||
+          'KYC verification completed successfully. We will email you with next steps shortly.',
+        faceScore: typeof faceScore === 'number' ? faceScore : undefined,
+        faceThreshold: FACE_MATCH_THRESHOLD,
+        livenessStatus: liveness?.status,
+        livenessConfidence: typeof liveness?.confidence === 'number' ? liveness.confidence : undefined,
+      });
+      setCurrentStep(Step.RESULT);
     } catch (err: any) {
-      const fallbackMessage = err instanceof Error ? err.message : 'Failed to submit verification. Please try again.';
-      setError(fallbackMessage);
+      let fallbackMessage = 'Failed to submit verification. Please try again.';
+      let faceScore: number | undefined;
+      let faceThreshold = FACE_MATCH_THRESHOLD;
+      let livenessStatus: string | undefined;
+      let livenessConfidence: number | undefined;
+
+      if (err instanceof SubmitKycError) {
+        fallbackMessage = err.message || fallbackMessage;
+        const details = (err.details as any) ?? {};
+        if (typeof details?.faceMatch?.score === 'number') {
+          faceScore = details.faceMatch.score;
+        }
+        if (typeof details?.faceMatch?.threshold === 'number') {
+          faceThreshold = details.faceMatch.threshold;
+        }
+        if (details?.liveness) {
+          livenessStatus = details.liveness.status;
+          if (typeof details.liveness.confidence === 'number') {
+            livenessConfidence = details.liveness.confidence;
+          }
+        }
+      } else if (err instanceof Error) {
+        fallbackMessage = err.message;
+      }
+
+      setError(null);
+      setSubmissionResult({
+        status: 'error',
+        message: fallbackMessage,
+        faceScore,
+        faceThreshold,
+        livenessStatus,
+        livenessConfidence,
+      });
+      setCurrentStep(Step.RESULT);
     } finally {
       setIsSubmitting(false);
     }
@@ -192,6 +249,8 @@ function App() {
       documentType: 'passport',
     });
     setError(null);
+    setSubmissionMessage(null);
+    setSubmissionResult(null);
     setCurrentStep(Step.WELCOME);
   };
 
@@ -424,6 +483,70 @@ function App() {
                 disabled={isSubmitting}
               >
                 {isSubmitting ? 'Submitting…' : 'Submit Verification'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {currentStep === Step.SUBMITTING && (
+        <div className="submitting-screen">
+          <div className="card loading-card">
+            <div className="loading-spinner" aria-hidden="true" />
+            <h2>Processing your verification</h2>
+            <p>Please hold on while we run document and liveness checks. This can take up to a minute.</p>
+          </div>
+        </div>
+      )}
+
+      {currentStep === Step.RESULT && submissionResult && (
+        <div className="result-screen">
+          <div
+            className={`card result-card ${
+              submissionResult.status === 'success' ? 'result-card-success' : 'result-card-error'
+            }`}
+          >
+            <div
+              className={`result-icon ${
+                submissionResult.status === 'success' ? 'result-icon-success' : 'result-icon-error'
+              }`}
+              aria-hidden="true"
+            />
+            <div className="result-text">
+              <h2>{submissionResult.status === 'success' ? 'Verification Completed' : 'Verification Declined'}</h2>
+              <p>{submissionResult.message}</p>
+            </div>
+            <div className="result-metrics">
+              <div className="result-metric">
+                <span className="metric-label">Face match score</span>
+                <span className="metric-value">
+                  {typeof submissionResult.faceScore === 'number'
+                    ? `${(submissionResult.faceScore * 100).toFixed(1)}%`
+                    : 'Not available'}
+                </span>
+                {submissionResult.faceThreshold && (
+                  <span className="metric-note">
+                    Threshold: {(submissionResult.faceThreshold * 100).toFixed(0)}%
+                  </span>
+                )}
+              </div>
+              <div className="result-metric">
+                <span className="metric-label">Liveness result</span>
+                <span className="metric-value">
+                  {submissionResult.livenessStatus
+                    ? submissionResult.livenessStatus.replace('_', ' ')
+                    : 'Not available'}
+                </span>
+                {typeof submissionResult.livenessConfidence === 'number' && (
+                  <span className="metric-note">
+                    Confidence: {(submissionResult.livenessConfidence * 100).toFixed(1)}%
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="result-actions">
+              <button className="btn btn-primary" onClick={handleRestart}>
+                Start a new verification
               </button>
             </div>
           </div>

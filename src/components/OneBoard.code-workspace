@@ -1,0 +1,17 @@
+{
+  "folders": [
+	{
+		"path": "../../../id-verification-system"
+	},
+	{
+		"path": "../../../dot-web-samples/reactjs-components-integration"
+	},
+	{
+		"path": "../../../kyc-verification"
+	},
+	{
+		"path": "../.."
+	}
+],
+  "settings": {}
+}
