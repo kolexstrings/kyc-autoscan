@@ -12,12 +12,18 @@ interface Props {
   onPhotoTaken: DocumentCallback;
   onError: (error: Error) => void;
   onBack: () => void;
+  title: string;
+  description: string;
+  badgeText?: string;
 }
 
 export default function DocumentAutoCapture({
   onPhotoTaken,
   onError,
   onBack,
+  title,
+  description,
+  badgeText,
 }: Props) {
   const [isButtonDisabled, setIsButtonDisabled] = useState(true);
   const [capturedPhoto, setCapturedPhoto] = useState<CallbackImage<DocumentComponentData> | null>(null);
@@ -47,15 +53,15 @@ export default function DocumentAutoCapture({
 
   return (
     <div className="capture-screen">
-      <h2>Document Capture</h2>
-      <p>Position your ID document in the frame and follow the instructions</p>
+      <h2>{title}</h2>
+      <p>{description}</p>
 
       <div className="capture-wrapper">
         {capturedPhoto ? (
           <div className="photo-preview">
             <img src={URL.createObjectURL(capturedPhoto.image)} alt="Captured document" />
             <div className="preview-overlay">
-              <div className="preview-badge">✓ Document Captured!</div>
+              <div className="preview-badge">{badgeText || '✓ Document Captured!'}</div>
             </div>
           </div>
         ) : (

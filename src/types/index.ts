@@ -2,6 +2,7 @@ export const Step = {
   WELCOME: "WELCOME",
   FORM: "FORM",
   DOCUMENT_CAPTURE: "DOCUMENT_CAPTURE",
+  DOCUMENT_BACK: "DOCUMENT_BACK",
   FACE_CAPTURE: "FACE_CAPTURE",
   REVIEW: "REVIEW",
   SUBMITTING: "SUBMITTING",
@@ -16,6 +17,16 @@ export interface CapturedImageData {
   base64: string;          // Pure base64 for Innovatrics API
   dataUri: string;         // Full data URI (data:image/jpeg;base64,...)
   filename: string;        // Downloaded filename
+}
+
+export interface DocumentCapture {
+  front?: CapturedImageData;
+  back?: CapturedImageData;
+}
+
+export interface CapturedData {
+  document: DocumentCapture;
+  selfies: CapturedImageData[];  // Array of up to 4 selfies
 }
 
 export interface KycFormData {
@@ -35,9 +46,4 @@ export interface KycSubmissionPayload {
   userId: string;
   documentType: string;
   challengeType: 'passive';
-}
-
-export interface CapturedData {
-  document?: CapturedImageData;
-  selfies: CapturedImageData[];  // Array of up to 4 selfies
 }

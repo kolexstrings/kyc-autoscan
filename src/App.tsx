@@ -5,7 +5,11 @@ import type { CapturedImageData, KycFormData, CapturedData } from "./types";
 import { Step } from "./types";
 import DocumentAutoCapture from "./components/DocumentAutoCapture";
 import FaceAutoCapture from "./components/FaceAutoCapture";
-import { blobToBase64, blobToDataUri, generateFilename } from "./utils/imageUtils";
+import {
+  blobToBase64,
+  blobToDataUri,
+  generateFilename,
+} from "./utils/imageUtils";
 import "./App.css";
 import { submitKyc, SubmitKycError } from "./services/kycApi";
 
@@ -18,83 +22,125 @@ type SubmissionResult = {
   livenessConfidence?: number;
 };
 
+const DOCUMENTS_REQUIRING_BACK = new Set([
+  "driver_license",
+  "id_card",
+  "residence_permit",
+]);
+
+const requiresBackCapture = (documentType: string) =>
+  DOCUMENTS_REQUIRING_BACK.has(documentType);
+
+const createInitialCapturedData = (): CapturedData => ({
+  document: {},
+  selfies: [],
+});
+
 function App() {
   const [currentStep, setCurrentStep] = useState<Step>(Step.WELCOME);
-  const [capturedData, setCapturedData] = useState<CapturedData>({ selfies: [] });
+  const [capturedData, setCapturedData] = useState<CapturedData>(() =>
+    createInitialCapturedData()
+  );
   const [formData, setFormData] = useState<KycFormData>({
-    name: '',
-    surname: '',
-    dateOfBirth: '',
-    documentType: 'passport',
+    name: "",
+    surname: "",
+    dateOfBirth: "",
+    documentType: "passport",
   });
   const [userId] = useState<string>(() => {
-    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
       return `user_${crypto.randomUUID()}`;
     }
     return `user_${Math.random().toString(36).slice(2, 10)}`;
   });
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submissionMessage, setSubmissionMessage] = useState<string | null>(null);
-  const [submissionResult, setSubmissionResult] = useState<SubmissionResult | null>(null);
+  const [submissionMessage, setSubmissionMessage] = useState<string | null>(
+    null
+  );
+  const [submissionResult, setSubmissionResult] =
+    useState<SubmissionResult | null>(null);
 
   const FACE_MATCH_THRESHOLD = 0.64;
 
   const isFormValid =
-    formData.name.trim() !== '' &&
-    formData.surname.trim() !== '' &&
-    formData.dateOfBirth.trim() !== '' &&
-    formData.documentType.trim() !== '';
+    formData.name.trim() !== "" &&
+    formData.surname.trim() !== "" &&
+    formData.dateOfBirth.trim() !== "" &&
+    formData.documentType.trim() !== "";
 
-  const handleDocumentCapture: DocumentCallback = async (imageData, _content) => {
-    try {
-      const blob = imageData.image;
-      
-      const filename = generateFilename('document');
-      
-      // Convert to all required formats
-      const base64 = await blobToBase64(blob);
-      const dataUri = await blobToDataUri(blob);
-      const dataUrl = URL.createObjectURL(blob);
-      
-      // Store all formats
-      const capturedImage: CapturedImageData = {
-        blob,
-        dataUrl,
-        base64,
-        dataUri,
-        filename,
-      };
-      
-      console.log('📄 Document captured:', {
-        filename,
-        blobSize: `${(blob.size / 1024).toFixed(2)} KB`,
-        base64Length: base64.length,
-        format: blob.type,
-        // For Innovatrics API, send: { image: { data: base64 } }
-        innovatricsFormat: { image: { data: base64 } }
-      });
-      
-      setCapturedData((prev) => {
-        const updated = { ...prev, document: capturedImage };
-        if (prev.selfies.length >= 4) {
-          setCurrentStep(Step.REVIEW);
-        } else {
-          setCurrentStep(Step.FACE_CAPTURE);
-        }
-        return updated;
-      });
-    } catch (err) {
-      setError("Failed to capture document. Please try again.");
-      console.error(err);
+  const proceedAfterDocumentCapture = (
+    updatedData: CapturedData,
+    side: "front" | "back"
+  ) => {
+    const needsBack = requiresBackCapture(formData.documentType);
+
+    if (side === "front" && needsBack && !updatedData.document.back) {
+      setCurrentStep(Step.DOCUMENT_BACK);
+      return;
+    }
+
+    if (updatedData.selfies.length >= 4) {
+      setCurrentStep(Step.REVIEW);
+    } else {
+      setCurrentStep(Step.FACE_CAPTURE);
     }
   };
+
+  const handleDocumentCapture =
+    (side: "front" | "back"): DocumentCallback =>
+    async (imageData, _content) => {
+      try {
+        const blob = imageData.image;
+        const filename = generateFilename(
+          side === "front" ? "document-front" : "document-back"
+        );
+
+        // Convert to all required formats
+        const base64 = await blobToBase64(blob);
+        const dataUri = await blobToDataUri(blob);
+        const dataUrl = URL.createObjectURL(blob);
+
+        // Store all formats
+        const capturedImage: CapturedImageData = {
+          blob,
+          dataUrl,
+          base64,
+          dataUri,
+          filename,
+        };
+
+        console.log(`📄 Document ${side} captured:`, {
+          filename,
+          blobSize: `${(blob.size / 1024).toFixed(2)} KB`,
+          base64Length: base64.length,
+          format: blob.type,
+          innovatricsFormat: { image: { data: base64 } },
+        });
+
+        setCapturedData((prev) => {
+          const updated: CapturedData = {
+            ...prev,
+            document: {
+              ...prev.document,
+              [side]: capturedImage,
+            },
+          };
+
+          proceedAfterDocumentCapture(updated, side);
+          return updated;
+        });
+      } catch (err) {
+        setError("Failed to capture document. Please try again.");
+        console.error(err);
+      }
+    };
 
   const handleFaceCapture: FaceCallback = async (imageData, _content) => {
     try {
       const blob = imageData.image;
 
-      const filename = generateFilename('selfie');
+      const filename = generateFilename("selfie");
 
       // Convert to all required formats
       const base64 = await blobToBase64(blob);
@@ -110,13 +156,13 @@ function App() {
         filename,
       };
 
-      console.log('🤳 Selfie captured:', {
+      console.log("🤳 Selfie captured:", {
         filename,
         blobSize: `${(blob.size / 1024).toFixed(2)} KB`,
         base64Length: base64.length,
         format: blob.type,
         // For Innovatrics API, send: { image: { data: base64 } }
-        innovatricsFormat: { image: { data: base64 } }
+        innovatricsFormat: { image: { data: base64 } },
       });
 
       setCapturedData((prev) => {
@@ -141,22 +187,56 @@ function App() {
     console.error("Capture error:", err);
   };
 
-  const handleFormChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleFormChange = (
+    event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
     const { name, value } = event.target;
     setFormData((prev) => ({
       ...prev,
       [name]: value,
     }));
+
+    if (name === "documentType") {
+      setCapturedData((prev) => ({
+        ...prev,
+        document: {},
+      }));
+      if (currentStep !== Step.WELCOME && currentStep !== Step.FORM) {
+        setCurrentStep(Step.DOCUMENT_CAPTURE);
+      }
+    }
   };
 
   const handleSubmit = async () => {
-    if (!capturedData.document || capturedData.selfies.length < 4) {
-      setError('Please capture both your ID document and at least 4 selfies before submitting.');
+    const frontDocument = capturedData.document.front;
+    const backDocument = capturedData.document.back;
+    const needsBack = requiresBackCapture(formData.documentType);
+
+    if (!frontDocument) {
+      setError("Please capture the front of your document before submitting.");
+      setCurrentStep(Step.DOCUMENT_CAPTURE);
       return;
     }
 
-    if (!formData.name || !formData.surname || !formData.dateOfBirth || !formData.documentType) {
-      setError('Please complete all required form fields.');
+    if (needsBack && !backDocument) {
+      setError("Please capture the back of your document before submitting.");
+      setCurrentStep(Step.DOCUMENT_BACK);
+      return;
+    }
+
+    if (capturedData.selfies.length < 4) {
+      setError("Please capture at least 4 selfies before submitting.");
+      setCurrentStep(Step.FACE_CAPTURE);
+      return;
+    }
+
+    if (
+      !formData.name ||
+      !formData.surname ||
+      !formData.dateOfBirth ||
+      !formData.documentType
+    ) {
+      setError("Please complete all required form fields.");
       return;
     }
 
@@ -168,7 +248,8 @@ function App() {
 
     try {
       const response = await submitKyc({
-        documentFront: capturedData.document.blob,
+        documentFront: frontDocument?.blob ?? null,
+        documentBack: backDocument?.blob,
         selfies: capturedData.selfies.map((selfie) => ({
           blob: selfie.blob,
           filename: selfie.filename,
@@ -179,28 +260,33 @@ function App() {
           dateOfBirth: formData.dateOfBirth,
           documentType: formData.documentType,
           userId,
-          challengeType: 'passive',
+          challengeType: "passive",
         },
       });
 
-      setSubmissionMessage(response?.message || 'Verification submitted successfully.');
+      setSubmissionMessage(
+        response?.message || "Verification submitted successfully."
+      );
       const results = response?.data?.results ?? {};
       const liveness = results?.livenessCheck ?? results?.liveness;
       const faceScore = results?.faceComparison?.score;
 
       setSubmissionResult({
-        status: 'success',
+        status: "success",
         message:
           response?.message ||
-          'KYC verification completed successfully. We will email you with next steps shortly.',
-        faceScore: typeof faceScore === 'number' ? faceScore : undefined,
+          "KYC verification completed successfully. We will email you with next steps shortly.",
+        faceScore: typeof faceScore === "number" ? faceScore : undefined,
         faceThreshold: FACE_MATCH_THRESHOLD,
         livenessStatus: liveness?.status,
-        livenessConfidence: typeof liveness?.confidence === 'number' ? liveness.confidence : undefined,
+        livenessConfidence:
+          typeof liveness?.confidence === "number"
+            ? liveness.confidence
+            : undefined,
       });
       setCurrentStep(Step.RESULT);
     } catch (err: any) {
-      let fallbackMessage = 'Failed to submit verification. Please try again.';
+      let fallbackMessage = "Failed to submit verification. Please try again.";
       let faceScore: number | undefined;
       let faceThreshold = FACE_MATCH_THRESHOLD;
       let livenessStatus: string | undefined;
@@ -209,15 +295,15 @@ function App() {
       if (err instanceof SubmitKycError) {
         fallbackMessage = err.message || fallbackMessage;
         const details = (err.details as any) ?? {};
-        if (typeof details?.faceMatch?.score === 'number') {
+        if (typeof details?.faceMatch?.score === "number") {
           faceScore = details.faceMatch.score;
         }
-        if (typeof details?.faceMatch?.threshold === 'number') {
+        if (typeof details?.faceMatch?.threshold === "number") {
           faceThreshold = details.faceMatch.threshold;
         }
         if (details?.liveness) {
           livenessStatus = details.liveness.status;
-          if (typeof details.liveness.confidence === 'number') {
+          if (typeof details.liveness.confidence === "number") {
             livenessConfidence = details.liveness.confidence;
           }
         }
@@ -227,7 +313,7 @@ function App() {
 
       setError(null);
       setSubmissionResult({
-        status: 'error',
+        status: "error",
         message: fallbackMessage,
         faceScore,
         faceThreshold,
@@ -241,12 +327,12 @@ function App() {
   };
 
   const handleRestart = () => {
-    setCapturedData({ selfies: [] });
+    setCapturedData(createInitialCapturedData());
     setFormData({
-      name: '',
-      surname: '',
-      dateOfBirth: '',
-      documentType: 'passport',
+      name: "",
+      surname: "",
+      dateOfBirth: "",
+      documentType: "passport",
     });
     setError(null);
     setSubmissionMessage(null);
@@ -274,12 +360,17 @@ function App() {
         <div className="welcome-screen">
           <div className="card">
             <h1>KYC Verification</h1>
-            <p>Complete your identity verification in a guided 4-step process</p>
+            <p>
+              Complete your identity verification in a guided 4-step process
+            </p>
 
             <div className="steps-list">
               <div className="step-item">
                 <h3>1. Provide Personal Details</h3>
-                <p>Fill in your information exactly as it appears on your ID document</p>
+                <p>
+                  Fill in your information exactly as it appears on your ID
+                  document
+                </p>
               </div>
               <div className="step-item">
                 <h3>2. Capture ID Document</h3>
@@ -287,11 +378,16 @@ function App() {
               </div>
               <div className="step-item">
                 <h3>3. Capture Selfies</h3>
-                <p>Take multiple selfies with slight variations for face verification and liveness detection</p>
+                <p>
+                  Take multiple selfies with slight variations for face
+                  verification and liveness detection
+                </p>
               </div>
               <div className="step-item">
                 <h3>4. Review & Submit</h3>
-                <p>Confirm your details and submit everything for verification</p>
+                <p>
+                  Confirm your details and submit everything for verification
+                </p>
               </div>
             </div>
 
@@ -383,9 +479,23 @@ function App() {
 
       {currentStep === Step.DOCUMENT_CAPTURE && (
         <DocumentAutoCapture
-          onPhotoTaken={handleDocumentCapture}
+          title="Capture the front of your document"
+          description="Place the front side of your ID within the frame and hold steady."
+          badgeText="Front captured"
+          onPhotoTaken={handleDocumentCapture("front")}
           onError={handleError}
           onBack={() => setCurrentStep(Step.FORM)}
+        />
+      )}
+
+      {currentStep === Step.DOCUMENT_BACK && (
+        <DocumentAutoCapture
+          title="Capture the back of your document"
+          description="Flip your ID to the back side and align it inside the frame."
+          badgeText="Back captured"
+          onPhotoTaken={handleDocumentCapture("back")}
+          onError={handleError}
+          onBack={() => setCurrentStep(Step.DOCUMENT_CAPTURE)}
         />
       )}
 
@@ -394,7 +504,7 @@ function App() {
           onPhotoTaken={handleFaceCapture}
           onError={handleError}
           onBack={() => setCurrentStep(Step.DOCUMENT_CAPTURE)}
-          capturedSelfies={capturedData.selfies.map(s => s.dataUrl)}
+          capturedSelfies={capturedData.selfies.map((s) => s.dataUrl)}
         />
       )}
 
@@ -406,11 +516,29 @@ function App() {
             <div className="review-grid">
               <div className="review-item">
                 <h3>ID Document</h3>
-                {capturedData.document && (
-                  <img
-                    src={capturedData.document.dataUrl}
-                    alt="Captured document"
-                  />
+                {capturedData.document.front || capturedData.document.back ? (
+                  <div className="document-preview-grid">
+                    {capturedData.document.front && (
+                      <div className="document-preview">
+                        <img
+                          src={capturedData.document.front.dataUrl}
+                          alt="Captured document front"
+                        />
+                        <span>Front</span>
+                      </div>
+                    )}
+                    {capturedData.document.back && (
+                      <div className="document-preview">
+                        <img
+                          src={capturedData.document.back.dataUrl}
+                          alt="Captured document back"
+                        />
+                        <span>Back</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p>No document captured</p>
                 )}
               </div>
 
@@ -482,7 +610,7 @@ function App() {
                 onClick={handleSubmit}
                 disabled={isSubmitting}
               >
-                {isSubmitting ? 'Submitting…' : 'Submit Verification'}
+                {isSubmitting ? "Submitting…" : "Submit Verification"}
               </button>
             </div>
           </div>
@@ -494,7 +622,10 @@ function App() {
           <div className="card loading-card">
             <div className="loading-spinner" aria-hidden="true" />
             <h2>Processing your verification</h2>
-            <p>Please hold on while we run document and liveness checks. This can take up to a minute.</p>
+            <p>
+              Please hold on while we run document and liveness checks. This can
+              take up to a minute.
+            </p>
           </div>
         </div>
       )}
@@ -503,30 +634,39 @@ function App() {
         <div className="result-screen">
           <div
             className={`card result-card ${
-              submissionResult.status === 'success' ? 'result-card-success' : 'result-card-error'
+              submissionResult.status === "success"
+                ? "result-card-success"
+                : "result-card-error"
             }`}
           >
             <div
               className={`result-icon ${
-                submissionResult.status === 'success' ? 'result-icon-success' : 'result-icon-error'
+                submissionResult.status === "success"
+                  ? "result-icon-success"
+                  : "result-icon-error"
               }`}
               aria-hidden="true"
             />
             <div className="result-text">
-              <h2>{submissionResult.status === 'success' ? 'Verification Completed' : 'Verification Declined'}</h2>
+              <h2>
+                {submissionResult.status === "success"
+                  ? "Verification Completed"
+                  : "Verification Declined"}
+              </h2>
               <p>{submissionResult.message}</p>
             </div>
             <div className="result-metrics">
               <div className="result-metric">
                 <span className="metric-label">Face match score</span>
                 <span className="metric-value">
-                  {typeof submissionResult.faceScore === 'number'
+                  {typeof submissionResult.faceScore === "number"
                     ? `${(submissionResult.faceScore * 100).toFixed(1)}%`
-                    : 'Not available'}
+                    : "Not available"}
                 </span>
                 {submissionResult.faceThreshold && (
                   <span className="metric-note">
-                    Threshold: {(submissionResult.faceThreshold * 100).toFixed(0)}%
+                    Threshold:{" "}
+                    {(submissionResult.faceThreshold * 100).toFixed(0)}%
                   </span>
                 )}
               </div>
@@ -534,12 +674,13 @@ function App() {
                 <span className="metric-label">Liveness result</span>
                 <span className="metric-value">
                   {submissionResult.livenessStatus
-                    ? submissionResult.livenessStatus.replace('_', ' ')
-                    : 'Not available'}
+                    ? submissionResult.livenessStatus.replace("_", " ")
+                    : "Not available"}
                 </span>
-                {typeof submissionResult.livenessConfidence === 'number' && (
+                {typeof submissionResult.livenessConfidence === "number" && (
                   <span className="metric-note">
-                    Confidence: {(submissionResult.livenessConfidence * 100).toFixed(1)}%
+                    Confidence:{" "}
+                    {(submissionResult.livenessConfidence * 100).toFixed(1)}%
                   </span>
                 )}
               </div>
